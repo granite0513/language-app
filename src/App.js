@@ -1,6 +1,52 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, BookOpen, Home, Search, Edit2 } from 'lucide-react';
 
+let db;
+
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('LanguageLearningDB', 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      db = request.result;
+      resolve(db);
+    };
+    request.onupgradeneeded = (event) => {
+      const dbInstance = event.target.result;
+      if (!dbInstance.objectStoreNames.contains('vocabulary')) {
+        dbInstance.createObjectStore('vocabulary', { keyPath: 'id' });
+      }
+    };
+  });
+};
+
+const loadVocabularyFromDB = () => {
+  return new Promise((resolve) => {
+    if (!db) {
+      resolve([]);
+      return;
+    }
+    const request = db.transaction(['vocabulary']).objectStore('vocabulary').getAll();
+    request.onsuccess = () => {
+      const data = request.result.map(item => ({
+        ...item,
+        category: item.category || 'Other',
+        difficulty: item.difficulty || 'medium'
+      }));
+      resolve(data);
+    };
+    request.onerror = () => resolve([]);
+  });
+};
+
+const saveVocabularyToDB = (vocabList) => {
+  if (!db) return;
+  const transaction = db.transaction(['vocabulary'], 'readwrite');
+  const store = transaction.objectStore('vocabulary');
+  store.clear();
+  vocabList.forEach(item => store.add(item));
+};
+
 export default function LanguageLearningApp() {
   const [mode, setMode] = useState('home');
   const [vocabulary, setVocabulary] = useState([]);
@@ -22,60 +68,19 @@ export default function LanguageLearningApp() {
   const [editingId, setEditingId] = useState(null);
   const [editCategory, setEditCategory] = useState('');
   const [editDifficulty, setEditDifficulty] = useState('');
-  const [dbReady, setDbReady] = useState(false);
-
-  let db;
-
-  const initDB = () => {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('LanguageLearningDB', 1);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        db = request.result;
-        loadVocabularyFromDB();
-        setDbReady(true);
-        resolve(db);
-      };
-
-      request.onupgradeneeded = (event) => {
-        db = event.target.result;
-        if (!db.objectStoreNames.contains('vocabulary')) {
-          db.createObjectStore('vocabulary', { keyPath: 'id' });
-        }
-      };
-    });
-  };
-
-  const loadVocabularyFromDB = () => {
-    const request = db.transaction(['vocabulary']).objectStore('vocabulary').getAll();
-    request.onsuccess = () => {
-      const data = request.result.map(item => ({
-        ...item,
-        category: item.category || 'Other',
-        difficulty: item.difficulty || 'medium'
-      }));
-      setVocabulary(data);
-    };
-  };
-
-  const saveVocabularyToDB = (vocabList) => {
-    if (!db) return;
-    const transaction = db.transaction(['vocabulary'], 'readwrite');
-    const store = transaction.objectStore('vocabulary');
-    store.clear();
-    vocabList.forEach(item => store.add(item));
-  };
 
   useEffect(() => {
-    initDB();
+    const initAndLoad = async () => {
+      await initDB();
+      const data = await loadVocabularyFromDB();
+      setVocabulary(data);
+    };
+    initAndLoad();
   }, []);
 
   useEffect(() => {
-    if (dbReady) {
-      saveVocabularyToDB(vocabulary);
-    }
-  }, [vocabulary, dbReady]);
+    saveVocabularyToDB(vocabulary);
+  }, [vocabulary]);
 
   const addVocabulary = () => {
     if (englishInput.trim() && portugueseInput.trim()) {
@@ -217,7 +222,7 @@ export default function LanguageLearningApp() {
     return (
       <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <button onClick={function() { setMode('home'); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
+          <button onClick={() => { setMode('home'); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
             Back to Home
           </button>
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -225,23 +230,23 @@ export default function LanguageLearningApp() {
             
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>Category</label>
-              <select value={quizCategory} onChange={function(e) { setQuizCategory(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
+              <select value={quizCategory} onChange={(e) => { setQuizCategory(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
                 {getCategories().map(cat => <option key={cat} value={cat}>{cat}</option>)}
               </select>
             </div>
 
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>Difficulty</label>
-              <select value={quizDifficulty} onChange={function(e) { setQuizDifficulty(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
+              <select value={quizDifficulty} onChange={(e) => { setQuizDifficulty(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
                 {getDifficulties().map(diff => <option key={diff} value={diff}>{diff === 'All' ? 'All Difficulties' : diff.charAt(0).toUpperCase() + diff.slice(1)}</option>)}
               </select>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <button onClick={function() { setQuizDirection('en-to-pt'); }} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#2196F3', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
+              <button onClick={() => { setQuizDirection('en-to-pt'); }} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#2196F3', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
                 English to Portuguese
               </button>
-              <button onClick={function() { setQuizDirection('pt-to-en'); }} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#FF9800', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
+              <button onClick={() => { setQuizDirection('pt-to-en'); }} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#FF9800', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
                 Portuguese to English
               </button>
             </div>
@@ -258,7 +263,7 @@ export default function LanguageLearningApp() {
       return (
         <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-            <button onClick={function() { setMode('home'); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
+            <button onClick={() => { setMode('home'); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
               Back to Home
             </button>
             <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -275,14 +280,14 @@ export default function LanguageLearningApp() {
     const correctAnswer = isEnglishToPortuguese ? current.portuguese : current.english;
     const speakLang = isEnglishToPortuguese ? 'en-US' : 'pt-BR';
 
-    const handleSpeak = function() {
+    const handleSpeak = () => {
       const utterance = new SpeechSynthesisUtterance(displayText);
       utterance.lang = speakLang;
       utterance.rate = 0.9;
       window.speechSynthesis.speak(utterance);
     };
 
-    const handleListen = function() {
+    const handleListen = () => {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
         setFeedback('Speech recognition not supported');
@@ -291,16 +296,16 @@ export default function LanguageLearningApp() {
       const recognition = new SpeechRecognition();
       recognition.lang = isEnglishToPortuguese ? 'pt-BR' : 'en-US';
       recognition.start();
-      recognition.onresult = function(event) {
+      recognition.onresult = (event) => {
         const spokenText = event.results[0][0].transcript;
         setUserAnswer(spokenText);
       };
-      recognition.onerror = function(event) {
+      recognition.onerror = (event) => {
         setFeedback('Error: ' + event.error);
       };
     };
 
-    const checkAnswerNow = function() {
+    const checkAnswerNow = () => {
       if (checkAnswerMatch(userAnswer, correctAnswer)) {
         setFeedback('CORRECT');
         const updatedVocab = vocabulary.map(v => 
@@ -335,7 +340,7 @@ export default function LanguageLearningApp() {
     return (
       <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <button onClick={function() { setMode('home'); setQuizDirection(null); setCurrentQuizIndex(0); setUserAnswer(''); setFeedback(''); setQuizComplete(false); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
+          <button onClick={() => { setMode('home'); setQuizDirection(null); setCurrentQuizIndex(0); setUserAnswer(''); setFeedback(''); setQuizComplete(false); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
             Back to Home
           </button>
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -359,7 +364,7 @@ export default function LanguageLearningApp() {
             </div>
 
             <p style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>Or type your answer:</p>
-            <input type="text" value={userAnswer} onChange={function(e) { setUserAnswer(e.target.value); }} placeholder="Type your answer..." autoFocus style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box', marginBottom: '16px' }} />
+            <input type="text" value={userAnswer} onChange={(e) => { setUserAnswer(e.target.value); }} placeholder="Type your answer..." autoFocus style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box', marginBottom: '16px' }} />
 
             {feedback && <div style={{ padding: '12px', backgroundColor: feedback === 'CORRECT' ? '#d4edda' : '#f8d7da', borderRadius: '6px', marginBottom: '16px', fontSize: '14px', color: feedback === 'CORRECT' ? '#155724' : '#721c24' }}>{feedback}</div>}
 
@@ -374,7 +379,6 @@ export default function LanguageLearningApp() {
 
   // QUIZ COMPLETE
   if (mode === 'quiz' && quizComplete) {
-    const progress = getProgress();
     return (
       <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -382,7 +386,7 @@ export default function LanguageLearningApp() {
             <h2 style={{ margin: 0, fontSize: '24px', color: '#1a1a1a', marginBottom: '12px' }}>Quiz Complete</h2>
             <p style={{ margin: 0, fontSize: '32px', fontWeight: '600', color: '#4CAF50', marginBottom: '20px' }}>{quizStats.correct} / {quizStats.attempted}</p>
             <p style={{ margin: 0, fontSize: '14px', color: '#666', marginBottom: '20px' }}>{Math.round((quizStats.correct / quizStats.attempted) * 100)}% correct</p>
-            <button onClick={function() { setMode('home'); setCurrentQuizIndex(0); setUserAnswer(''); setFeedback(''); setQuizComplete(false); setQuizDirection(null); }} style={{ padding: '12px 24px', border: 'none', borderRadius: '8px', backgroundColor: '#2196F3', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
+            <button onClick={() => { setMode('home'); setCurrentQuizIndex(0); setUserAnswer(''); setFeedback(''); setQuizComplete(false); setQuizDirection(null); }} style={{ padding: '12px 24px', border: 'none', borderRadius: '8px', backgroundColor: '#2196F3', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
               Back to Home
             </button>
           </div>
@@ -403,7 +407,7 @@ export default function LanguageLearningApp() {
           <p style={{ margin: '8px 0 30px 0', color: '#666', fontSize: '14px' }}>Learn Portuguese from your everyday life</p>
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '30px' }}>
-            <button onClick={function() { setMode('input'); }} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#4CAF50', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
+            <button onClick={() => { setMode('input'); }} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#4CAF50', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
               Add Vocabulary
             </button>
             <button onClick={startQuiz} style={{ padding: '24px', border: 'none', borderRadius: '12px', backgroundColor: '#2196F3', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
@@ -433,7 +437,7 @@ export default function LanguageLearningApp() {
             <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#1a1a1a' }}>Your Vocabulary ({filteredVocab.length})</h2>
             
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <button onClick={function() { 
+              <button onClick={() => { 
                 const dataStr = JSON.stringify(vocabulary, null, 2);
                 const dataBlob = new Blob([dataStr], { type: 'application/json' });
                 const url = URL.createObjectURL(dataBlob);
@@ -445,11 +449,11 @@ export default function LanguageLearningApp() {
                 Download
               </button>
               
-              <input type="file" accept=".json" onChange={function(e) {
+              <input type="file" accept=".json" onChange={(e) => {
                 const file = e.target.files[0];
                 if (file) {
                   const reader = new FileReader();
-                  reader.onload = function(event) {
+                  reader.onload = (event) => {
                     try {
                       let imported = JSON.parse(event.target.result);
                       imported = imported.map(item => ({
@@ -468,20 +472,20 @@ export default function LanguageLearningApp() {
                 }
               }} style={{ display: 'none' }} id="fileInput" />
               
-              <button onClick={function() { document.getElementById('fileInput').click(); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#2196F3', color: 'white', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
+              <button onClick={() => { document.getElementById('fileInput').click(); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#2196F3', color: 'white', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
                 Upload
               </button>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
-              <input type="text" value={searchFilter} onChange={function(e) { setSearchFilter(e.target.value); }} placeholder="Search phrases..." style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box', marginBottom: '8px' }} />
+              <input type="text" value={searchFilter} onChange={(e) => { setSearchFilter(e.target.value); }} placeholder="Search phrases..." style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box', marginBottom: '8px' }} />
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <select value={selectedCategory} onChange={function(e) { setSelectedCategory(e.target.value); }} style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
+                <select value={selectedCategory} onChange={(e) => { setSelectedCategory(e.target.value); }} style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
                   {getCategories().map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
                 
-                <select value={selectedDifficulty} onChange={function(e) { setSelectedDifficulty(e.target.value); }} style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
+                <select value={selectedDifficulty} onChange={(e) => { setSelectedDifficulty(e.target.value); }} style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
                   {getDifficulties().map(diff => <option key={diff} value={diff}>{diff === 'All' ? 'All Difficulties' : diff.charAt(0).toUpperCase() + diff.slice(1)}</option>)}
                 </select>
               </div>
@@ -493,7 +497,7 @@ export default function LanguageLearningApp() {
               <p style={{ color: '#999', margin: 0 }}>No phrases found</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {filteredVocab.map(function(item) {
+                {filteredVocab.map((item) => {
                   const isEditing = editingId === item.id;
 
                   if (isEditing) {
@@ -503,7 +507,7 @@ export default function LanguageLearningApp() {
                         
                         <div style={{ marginBottom: '12px' }}>
                           <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Category</label>
-                          <select value={editCategory} onChange={function(e) { setEditCategory(e.target.value); }} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
+                          <select value={editCategory} onChange={(e) => { setEditCategory(e.target.value); }} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
                             <option>Greeting</option>
                             <option>Small Talk</option>
                             <option>Work</option>
@@ -517,7 +521,7 @@ export default function LanguageLearningApp() {
 
                         <div style={{ marginBottom: '12px' }}>
                           <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Difficulty</label>
-                          <select value={editDifficulty} onChange={function(e) { setEditDifficulty(e.target.value); }} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
+                          <select value={editDifficulty} onChange={(e) => { setEditDifficulty(e.target.value); }} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}>
                             <option value="easy">Easy</option>
                             <option value="medium">Medium</option>
                             <option value="hard">Hard</option>
@@ -528,7 +532,7 @@ export default function LanguageLearningApp() {
                           <button onClick={saveEditedPhrase} style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: '#4CAF50', color: 'white', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
                             Save
                           </button>
-                          <button onClick={function() { setEditingId(null); }} style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', color: '#333', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
+                          <button onClick={() => { setEditingId(null); }} style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', color: '#333', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
                             Cancel
                           </button>
                         </div>
@@ -544,10 +548,10 @@ export default function LanguageLearningApp() {
                           <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: '600', color: '#1a1a1a' }}>{item.portuguese}</p>
                         </div>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={function() { startEditingPhrase(item); }} style={{ padding: '6px 10px', border: 'none', borderRadius: '6px', backgroundColor: '#e3f2fd', color: '#1976d2', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
+                          <button onClick={() => { startEditingPhrase(item); }} style={{ padding: '6px 10px', border: 'none', borderRadius: '6px', backgroundColor: '#e3f2fd', color: '#1976d2', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
                             Edit
                           </button>
-                          <button onClick={function() { setVocabulary(vocabulary.filter(v => v.id !== item.id)); }} style={{ padding: '6px 10px', border: 'none', borderRadius: '6px', backgroundColor: '#ffebee', color: '#c62828', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
+                          <button onClick={() => { setVocabulary(vocabulary.filter(v => v.id !== item.id)); }} style={{ padding: '6px 10px', border: 'none', borderRadius: '6px', backgroundColor: '#ffebee', color: '#c62828', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
                             Delete
                           </button>
                         </div>
@@ -574,22 +578,22 @@ export default function LanguageLearningApp() {
     return (
       <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <button onClick={function() { setMode('home'); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
+          <button onClick={() => { setMode('home'); }} style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', backgroundColor: '#f0f0f0', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
             Back to Home
           </button>
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#1a1a1a' }}>Add New Vocabulary</h2>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>English</label>
-              <input type="text" value={englishInput} onChange={function(e) { setEnglishInput(e.target.value); }} placeholder="Good morning, how are you?" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+              <input type="text" value={englishInput} onChange={(e) => { setEnglishInput(e.target.value); }} placeholder="Good morning, how are you?" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>Portuguese</label>
-              <input type="text" value={portugueseInput} onChange={function(e) { setPortugueseInput(e.target.value); }} placeholder="Bom dia, como voce esta?" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+              <input type="text" value={portugueseInput} onChange={(e) => { setPortugueseInput(e.target.value); }} placeholder="Bom dia, como voce esta?" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>Category</label>
-              <select value={categoryInput} onChange={function(e) { setCategoryInput(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}>
+              <select value={categoryInput} onChange={(e) => { setCategoryInput(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}>
                 <option>Greeting</option>
                 <option>Small Talk</option>
                 <option>Work</option>
@@ -602,7 +606,7 @@ export default function LanguageLearningApp() {
             </div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>Difficulty</label>
-              <select value={difficultyInput} onChange={function(e) { setDifficultyInput(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}>
+              <select value={difficultyInput} onChange={(e) => { setDifficultyInput(e.target.value); }} style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}>
                 <option value="easy">Easy</option>
                 <option value="medium">Medium</option>
                 <option value="hard">Hard</option>
